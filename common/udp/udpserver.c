@@ -9,21 +9,45 @@
 
 void UdpServer_init(struct UdpServerStruct *s,
                           uint16_t localPort) {
+    if (!s) {
+        printf("UdpServer_init(): Invalid parameters\\n");
+        return;
+    }
+    
     s->clientLength = sizeof(s->other);
 
-    if ((s->serverSocket=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
-        printf("UdpServerClient_init(): error creating socket\n");
+    // Create the socket
+    if ((s->serverSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
+        printf("UdpServer_init(): Error creating socket\\n");
+        s->initialized = 0;
+        return;
     }
 
+    // Enable socket reuse to avoid "Address already in use" errors
+    int reuse = 1;
+    if (setsockopt(s->serverSocket, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) == -1) {
+        printf("UdpServer_init(): Error setting SO_REUSEADDR\\n");
+        close(s->serverSocket);
+        s->initialized = 0;
+        return;
+    }
+
+    // Initialize server address
     bzero(&s->me, sizeof(s->me));
     s->me.sin_family = AF_INET;
     s->me.sin_port = htons(localPort);
     s->me.sin_addr.s_addr = htonl(INADDR_ANY);
 
+    // Bind socket to port
     if (bind(s->serverSocket, (struct sockaddr*) &s->me,
              sizeof(s->me)) == -1) {
-        printf("UdpServer_init(): error bind\n");
+        printf("UdpServer_init(): Error binding to port %d\\n", localPort);
+        close(s->serverSocket);
+        s->initialized = 0;
+        return;
     }
+    
+    printf("UdpServer_init(): Listening on port %d\\n", localPort);
     s->initialized = 1;
 }
 /*--------------------------------------------------------------------------*/

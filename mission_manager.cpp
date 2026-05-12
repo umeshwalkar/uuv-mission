@@ -15,8 +15,9 @@
 
 #define UDP_GCS_RX_PORT 5500
 #define UDP_GCS_TX_PORT 5510
-#define UDP_GCS_IP "0.0.0.0"
-// #define UDP_GCS_IP "host.docker.internal" //"127.0.0.1" // Change to actual GCS IP if needed
+#define UDP_GCS_IP "host.docker.internal"
+// On Docker Desktop (Windows/Mac), host.docker.internal resolves to the host machine
+// On Linux with --network host, this would need to be 127.0.0.1
 #define MAX_MESSAGE_DIMENSION 1024
 
 // Configuration
@@ -283,11 +284,34 @@ int main(int argc, char *argv[])
     }
 
     // bind the server on the receive port
-    UdpServer_init(&udpServer, UDP_GCS_RX_PORT);
-    printf("[Config] UDP Server Port: %d\n", UDP_GCS_RX_PORT);
+    if (udpServer.initialized == 0)
+    {
+        UdpServer_init(&udpServer, UDP_GCS_RX_PORT);
+        if (udpServer.initialized)
+        {
+            printf("[Config] UDP Server initialized on port %d (receive from host)\n", UDP_GCS_RX_PORT);
+        }
+        else
+        {
+            printf("[ERROR] Failed to initialize UDP Server on port %d\n", UDP_GCS_RX_PORT);
+            return 1;
+        }
+    }
 
-    // create udp client connection to GCS
-    UdpClient_init(&udpClient, (int8_t *)UDP_GCS_IP, UDP_GCS_TX_PORT);
+    // create udp client connection to send to host
+    if (udpClient.initialized == 0)
+    {
+        UdpClient_init(&udpClient, (int8_t *)UDP_GCS_IP, UDP_GCS_TX_PORT);
+        if (udpClient.initialized)
+        {
+            printf("[Config] UDP Client initialized to send to %s:%d\n", UDP_GCS_IP, UDP_GCS_TX_PORT);
+        }
+        else
+        {
+            printf("[ERROR] Failed to initialize UDP Client to %s:%d\n", UDP_GCS_IP, UDP_GCS_TX_PORT);
+            return 1;
+        }
+    }
 
     printf("[Main] Application started. Press Ctrl+C to exit.\n\n");
 
@@ -307,26 +331,29 @@ int main(int argc, char *argv[])
         {
         }
 
-        // Publish navigation status at 1 Hz
+        // Publish navigation status at 1 Hz (send to host)
         if (elapsed_status.count() >= 1000)
         {
             last_status_time = now;
-            printf("[MAIN] sending status\n");
-            strcpy((char*)buffer, "Hello from Mission Manager!"); // Example message, replace with actual status data
+            printf("[MAIN] Sending status to host %s:%d\n", UDP_GCS_IP, UDP_GCS_TX_PORT);
+            memset(buffer, 0, MAX_MESSAGE_DIMENSION);
+            strcpy((char*)buffer, "Hello from Mission Manager!");
             int bytesSent = UdpClient_send(&udpClient, buffer, (uint16_t)strlen((char*)buffer));
+            if (bytesSent > 0)
+            {
+                printf("[UDP] Sent %d bytes to host\n", bytesSent);
+            }
+            else
+            {
+                printf("[UDP] Failed to send data to host\n");
+            }
         }
 
-         numberBytesReceived = UdpClient_recv(&udpClient, buffer, (uint16_t)MAX_MESSAGE_DIMENSION);
-        if (numberBytesReceived > 0)
-        {
-            printf("[UDP] Received on Client %d bytes from GCS\n", numberBytesReceived);
-            // Process the received data as needed
-        }
-
+        // Receive data from host on server port
         numberBytesReceived = UdpServer_recv(&udpServer, buffer, (uint16_t)MAX_MESSAGE_DIMENSION);
         if (numberBytesReceived > 0)
         {
-            printf("[UDP] Received Server %d bytes from GCS\n", numberBytesReceived);
+            printf("[UDP] Received %d bytes from host\n", numberBytesReceived);
             // Process the received data as needed
         }
 

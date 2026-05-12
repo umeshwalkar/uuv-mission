@@ -25,16 +25,28 @@
         }
 	},
 
-	// Use 'forwardPorts' to make a list of ports inside the container available locally.
-	"forwardPorts":[5500, 5510]
+	// Add host.docker.internal to container's /etc/hosts for DNS resolution
+	// Explicitly publish UDP ports for Windows Docker Desktop bidirectional communication
+	"runArgs": [
+		"--add-host=host.docker.internal:host-gateway",
+		"--publish=5500:5500/udp"
+		// "--publish=5510:5510/udp"
+	],
 
-	// Specific behavior for each port
-    // "portsAttributes": {
-	// 	"1883": {
-	// 		"label": "MQTT",
-	// 		"onAutoForward": "silent"
-	// 	}
-	// }
+	// Specific behavior for each port (for port forwarding UI)
+    "portsAttributes": {
+		// "5500": {
+      	// 	"label": "GUI->APP (receive from host)",
+      	// 	"protocol": "udp",
+		// 	"onAutoForward": "notify"
+    	// },
+		"5510": {
+      		"label": "APP->GUI (send to host)",
+      		"protocol": "udp",
+			"onAutoForward": "notify"
+    	}
+	}
+
 	// Uncomment the next line to run commands after the container is created.
 	// "postCreateCommand": "cat /etc/os-release",
 
