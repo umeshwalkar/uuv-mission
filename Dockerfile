@@ -55,4 +55,5 @@ RUN apt-get install -y libmosquitto-dev libjsoncpp-dev pkg-config
 # RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
 #     && apt-get -y install --no-install-recommends <your-package-list-here>
 
-# EXPOSE 1883
+EXPOSE 5500/udp
+EXPOSE 5510/udp

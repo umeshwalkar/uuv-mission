@@ -23,10 +23,10 @@
 				"ms-vscode.cmake-tools"
             ]
         }
-	}
+	},
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
-	// "forwardPorts": [1883],
+	"forwardPorts":[5500, 5510]
 
 	// Specific behavior for each port
     // "portsAttributes": {
