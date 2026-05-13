@@ -3,17 +3,26 @@
 FROM ubuntu:22.04
 
 # Install C++ build dependencies
-# RUN apt-get update && apt-get install -y \
-#     build-essential \
-#     cmake \
-#     libmosquitto-dev \
-#     libjsoncpp-dev \
-#     pkg-config \
-#     && rm -rf /var/lib/apt/lists/*
-
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y tzdata
-RUN apt-get install -y vim build-essential git cmake net-tools gdb clang 
-RUN apt-get install -y libmosquitto-dev libjsoncpp-dev pkg-config
+
+# Install GCC/G++ compiler and build tools
+RUN apt-get install -y \
+    build-essential \
+    g++ \
+    gcc \
+    cmake \
+    git \
+    vim \
+    net-tools \
+    gdb \
+    clang \
+    libmosquitto-dev \
+    libjsoncpp-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Verify compiler installation
+RUN g++ --version && gcc --version && cmake --version
 
 # WORKDIR /app
 

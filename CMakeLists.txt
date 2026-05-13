@@ -1,9 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
-project(mission_manager)
+project(mission_manager CXX C)
 
-# Set C++ standard (C++14 for compatibility with older compilers like GCC 4.9)
-set(CMAKE_CXX_STANDARD 14)
+# Set C++ standard to C++17
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
 
 # Find required packages
 if(NOT WIN32)
@@ -29,9 +30,9 @@ if(WIN32)
 else()
     add_executable(mission_manager
         mission_manager.cpp
-        common/udp/udpServer.c
-        common/udp/udpclient.c
-        udpTaskMgmt.c
+        common/udp/udpserver.cpp
+        common/udp/udpclient.cpp
+        GuiWiFiTask.cpp
     )
 endif()
 
@@ -69,6 +70,7 @@ target_compile_options(mission_manager PRIVATE
     -Wextra
     -O2
     -g
+    
 )
 
 # Installation
