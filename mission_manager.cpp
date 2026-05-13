@@ -9,13 +9,16 @@
 #include <json/json.h>
 #include "structures.hpp"
 
-#include "common/udp/udpclient.h"
-#include "common/udp/udpserver.h"
-#include "common/udp/udpSerialize.h"
+// #include "common/udp/udpclient.hpp"
+// #include "common/udp/udpserver.hpp"
+// #include "common/udp/udpSerialize.h"
+
+#include "GuiWiFiTask.hpp"
 
 #define UDP_GCS_RX_PORT 5500
 #define UDP_GCS_TX_PORT 5510
 #define UDP_GCS_IP "host.docker.internal"
+
 // On Docker Desktop (Windows/Mac), host.docker.internal resolves to the host machine
 // On Linux with --network host, this would need to be 127.0.0.1
 #define MAX_MESSAGE_DIMENSION 1024
@@ -39,8 +42,9 @@ volatile sig_atomic_t running = 1;
 struct mosquitto *mqtt_client = NULL;
 int mqtt_connected = 0;
 // ModeManager* mode_manager = NULL;
-UdpServerStruct udpServer;
-UdpClientStruct udpClient;
+// UdpServerStruct udpServer;
+// UdpClientStruct udpClient;
+SystemData_t systemData; // this will hold the latest telemetry and status data for use in the GUI and other tasks
 
 // Counters
 int nav_control_count = 0;
@@ -132,24 +136,24 @@ void mqtt_on_message(struct mosquitto *mosq, void *userdata,
 
         // Parse autonomous parameters
         if (root.isMember("thrust"))
-            nav.thruster.thrust_percent = root["thrust"].asDouble();
+            nav.thruster.thrust = root["thrust"].asInt();
         if (root.isMember("thruster_rpm"))
             nav.thruster.rpm = root["thruster_rpm"].asInt();
 
         if (root.isMember("bottom_rudder"))
-            nav.bottomRudder.angle_deg = root["bottom_rudder"].asDouble();
+            nav.bottomRudder.angleCommanded = root["bottom_rudder"].asDouble();
         if (root.isMember("top_rudder"))
-            nav.topRudder.angle_deg = root["top_rudder"].asDouble();
+            nav.topRudder.angleCommanded = root["top_rudder"].asDouble();
         if (root.isMember("starboard_rudder"))
-            nav.starboard.angle_deg = root["starboard_rudder"].asDouble();
+            nav.starboard.angleCommanded = root["starboard_rudder"].asDouble();
         if (root.isMember("port_rudder"))
-            nav.port.angle_deg = root["port_rudder"].asDouble();
+            nav.port.angleCommanded = root["port_rudder"].asDouble();
 
         if (nav_control_count % 1 == 0)
         {
             // const auto& nav = mode_manager->get_navigation_state();
-            printf("[MisManager] NAV Update #%d: Thrust=%.1f %%, Top=%.1f, Bottom=%.1f, port=%.1f, starboard=%.1f\n",
-                   nav_control_count, nav.topRudder.angle_deg, nav.bottomRudder.angle_deg, nav.port.angle_deg, nav.starboard.angle_deg);
+            printf("[MisManager] NAV Update #%d: Thrust=%d %%, Top=%.1f, Bottom=%.1f, port=%.1f, starboard=%.1f\n",
+                   nav_control_count, nav.thruster.thrust, nav.topRudder.angleCommanded, nav.bottomRudder.angleCommanded, nav.port.angleCommanded, nav.starboard.angleCommanded);
         }
     }
 
@@ -174,9 +178,12 @@ void mqtt_on_message(struct mosquitto *mosq, void *userdata,
             Telemetry.roll = root["roll"].asDouble();
         if (root.isMember("speed"))
             Telemetry.speed = root["speed"].asDouble();
-        // if (root.isMember("velocity_x")) Telemetry.velocity_x = imu_data["velocity_x"].asDouble();
-        // if (root.isMember("velocity_y")) Telemetry.velocity_y = imu_data["velocity_y"].asDouble();
-        // if (root.isMember("velocity_z")) nav_state.velocity_z = imu_data["velocity_z"].asDouble();
+        if (root.isMember("velocity_x"))
+            Telemetry.velocity_x = root["velocity_x"].asDouble();
+        if (root.isMember("velocity_y"))
+            Telemetry.velocity_y = root["velocity_y"].asDouble();
+        if (root.isMember("velocity_z"))
+            Telemetry.velocity_z = root["velocity_z"].asDouble();
 
         if (imu_count % 30 == 0)
         {
@@ -283,43 +290,72 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // bind the server on the receive port
-    if (udpServer.initialized == 0)
-    {
-        UdpServer_init(&udpServer, UDP_GCS_RX_PORT);
-        if (udpServer.initialized)
-        {
-            printf("[Config] UDP Server initialized on port %d (receive from host)\n", UDP_GCS_RX_PORT);
-        }
-        else
-        {
-            printf("[ERROR] Failed to initialize UDP Server on port %d\n", UDP_GCS_RX_PORT);
-            return 1;
-        }
-    }
-
-    // create udp client connection to send to host
-    if (udpClient.initialized == 0)
-    {
-        UdpClient_init(&udpClient, (int8_t *)UDP_GCS_IP, UDP_GCS_TX_PORT);
-        if (udpClient.initialized)
-        {
-            printf("[Config] UDP Client initialized to send to %s:%d\n", UDP_GCS_IP, UDP_GCS_TX_PORT);
-        }
-        else
-        {
-            printf("[ERROR] Failed to initialize UDP Client to %s:%d\n", UDP_GCS_IP, UDP_GCS_TX_PORT);
-            return 1;
-        }
-    }
-
     printf("[Main] Application started. Press Ctrl+C to exit.\n\n");
 
     // Main control loop
     std::chrono::steady_clock::time_point last_control_time = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point last_status_time = std::chrono::steady_clock::now();
-    int32_t numberBytesReceived;
-    unsigned char buffer[MAX_MESSAGE_DIMENSION] = {0};
+    // int32_t numberBytesReceived;
+    // unsigned char buffer[MAX_MESSAGE_DIMENSION] = {0};
+    ConfigData config;
+    strcpy(config.guiWiFiIP, UDP_GCS_IP);
+    config.guiWiFiTxPort = UDP_GCS_TX_PORT;
+    config.guiWiFiRxPort = UDP_GCS_RX_PORT;
+
+    // dummy variables for testing
+    systemData.telemetry.latitude = 37.7749;
+    systemData.telemetry.longitude = -122.4194;
+    systemData.telemetry.depth = 10.5;
+    systemData.telemetry.speed = 1.5;
+    systemData.telemetry.velocity_x = 1.0;
+    systemData.telemetry.velocity_y = 0.5;
+    systemData.telemetry.velocity_z = 0.0;
+    systemData.telemetry.heading = 90.0;
+    systemData.telemetry.pitch = 5.0;
+    systemData.telemetry.roll = 2.0;
+
+    systemData.thruster.thrust = 50; // in percent
+    systemData.thruster.rpm = 500;
+    systemData.thruster.voltage = 48;     // in volts
+    systemData.thruster.current = 10;     // in amps
+    systemData.thruster.temperature = 25; // in degrees Celsius
+
+    systemData.port.angle = 10.0;
+    systemData.port.angleCommanded = 10.0;
+    systemData.port.voltage = 12.0;
+    systemData.port.current = 1.0;
+    systemData.port.position = 100;
+    systemData.port.temperature = 30.0;
+
+    systemData.starboard.angle = -10.0;
+    systemData.starboard.angleCommanded = -10.0;
+    systemData.starboard.voltage = 12.0;
+    systemData.starboard.current = 1.0;
+    systemData.starboard.position = -100;
+    systemData.starboard.temperature = 30.0;
+
+    systemData.topRudder.angle = 5.0;
+    systemData.topRudder.angleCommanded = 5.0;
+    systemData.topRudder.voltage = 12.0;
+    systemData.topRudder.current = 1.0;
+    systemData.topRudder.position = 50;
+    systemData.topRudder.temperature = 30.0;
+
+    systemData.bottomRudder.angle = -5.0;
+    systemData.bottomRudder.angleCommanded = -5.0;
+    systemData.bottomRudder.voltage = 12.0;
+    systemData.bottomRudder.current = 1.0;
+    systemData.bottomRudder.position = -50;
+    systemData.bottomRudder.temperature = 30.0;
+
+    systemData.bms.voltage = 48;         // in millivolts
+    systemData.bms.current = 120;        // in milliamps
+    systemData.bms.capacityRemain = 100; // in Ah
+    systemData.bms.chargePercent = 90;
+
+    // intitialize and start GUI WiFi Task
+    GuiWiFiTask guiwifi(&config, &systemData);
+    guiwifi.start();
 
     while (running)
     {
@@ -331,31 +367,13 @@ int main(int argc, char *argv[])
         {
         }
 
-        // Publish navigation status at 1 Hz (send to host)
-        if (elapsed_status.count() >= 1000)
-        {
-            last_status_time = now;
-            printf("[MAIN] Sending status to host %s:%d\n", UDP_GCS_IP, UDP_GCS_TX_PORT);
-            memset(buffer, 0, MAX_MESSAGE_DIMENSION);
-            strcpy((char*)buffer, "Hello from Mission Manager!");
-            int bytesSent = UdpClient_send(&udpClient, buffer, (uint16_t)strlen((char*)buffer));
-            if (bytesSent > 0)
-            {
-                printf("[UDP] Sent %d bytes to host\n", bytesSent);
-            }
-            else
-            {
-                printf("[UDP] Failed to send data to host\n");
-            }
-        }
-
-        // Receive data from host on server port
-        numberBytesReceived = UdpServer_recv(&udpServer, buffer, (uint16_t)MAX_MESSAGE_DIMENSION);
-        if (numberBytesReceived > 0)
-        {
-            printf("[UDP] Received %d bytes from host\n", numberBytesReceived);
-            // Process the received data as needed
-        }
+        // // Receive data from host on server port
+        // numberBytesReceived = UdpServer_recv(&udpServer, buffer, (uint16_t)MAX_MESSAGE_DIMENSION);
+        // if (numberBytesReceived > 0)
+        // {
+        //     printf("[UDP] Received %d bytes from host\n", numberBytesReceived);
+        //     // Process the received data as needed
+        // }
 
         usleep(10000); // Sleep for 10ms to reduce CPU usage
     }
