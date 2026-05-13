@@ -31,6 +31,7 @@ else()
         mission_manager.cpp
         common/udp/udpServer.c
         common/udp/udpclient.c
+        udpTaskMgmt.c
     )
 endif()
 
