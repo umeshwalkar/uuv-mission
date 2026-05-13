@@ -332,3 +332,5 @@ ASALocalRun/
 # Build output for this sample
 *.out
 build/
+testing/
+references/
