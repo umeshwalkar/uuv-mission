@@ -1,4 +1,6 @@
 #include "GuiWiFiTask.hpp"
+#include "DataManager.hpp"
+#include "VehicleData.hpp"
 
 #include <iostream>
 #include <cstring>
@@ -36,39 +38,45 @@ void GuiWiFiTask::task()
     std::cout << "[GUIWIFI] UDP Client initialized to send to \""
               << pConfig->guiWiFiIP << "\" : " << pConfig->guiWiFiTxPort << "\n";
 
-    int counter = 0;
+    // int counter = 0;
     std::chrono::steady_clock::time_point last_status_time = std::chrono::steady_clock::now();
 
     while (running)
     {
-        char msg[128];
+        // uint8_t msg[128];
+        GuiPacket_t rxPacket;
 
         /* Try to receive data from server socket */
-        int bytesReceived = server.recv(reinterpret_cast<uint8_t *>(msg), sizeof(msg));
+        int bytesReceived = server.recv(reinterpret_cast<uint8_t *>(rxPacket.msg), sizeof(rxPacket.msg));
 
         if (bytesReceived > 0)
         {
             // Process received data
-            printf("[GUIWIFI] Received %d bytes\n", bytesReceived);
+            // printf("[GUIWIFI] Received %d bytes\n", bytesReceived);
 
             /* Validate packet */
-            if (validatePacket(reinterpret_cast<uint8_t *>(msg), bytesReceived) == 0)
+            if (validatePacket(reinterpret_cast<uint8_t *>(rxPacket.msg), bytesReceived) == 0)
             {
                 // Process valid packet
 
-                GuiPacket_t rxPacket;
+                // GuiPacket_t rxPacket;
 
                 // copy payload data excluding SOF, CR and SOF (3 bytes)
-                // bcopy(&msg[1], &rxPacket, (bytesReceived - 3));
-                memcpy((GuiPacket_t *)&rxPacket, (uint8_t *)&msg[1], (bytesReceived - 3));
+                // bcopy((uint8_t *)&msg[1], (uint8_t *)&rxPacket, (bytesReceived - 3));
+                // memcpy(reinterpret_cast<uint8_t *>(&rxPacket), reinterpret_cast<uint8_t *>(&msg[1]), (bytesReceived - 3));
+                // printf("[GUIWIFI] rxpacket: %d, %d, %d, %d, %d\n", rxPacket.msg[10], rxPacket.msg[11],
+                //     rxPacket.data[0], rxPacket.data[1], rxPacket.data[2]);
 
-                uint64_t rxTime = rxPacket.timestamp.val;
-                endianConverter(&rxPacket.timestamp.bytes[0], (uint8_t *)&rxTime, 8);
+                uint64_t rxTime; // = rxPacket.timestamp.val;
+                endianConverter((uint8_t *)&rxPacket.header.timestamp, (uint8_t *)&rxTime, 8);
+
+                uint16_t rxLength; // = rxPacket.length;
+                endianConverter((uint8_t *)&rxPacket.header.length, (uint8_t *)&rxLength, 2);
 
                 printf("[GUIWIFI] Valid packet: ID=%02d, Length=%d, time: %ld\n",
-                       rxPacket.packetId, bytesReceived, rxTime);
+                       rxPacket.header.packetId, rxLength, rxTime);
 
-                int ret = processPacket(rxPacket);
+                int8_t ret = processPacket(rxPacket);
                 if ((StdAckRetCode_t)ret != STD_ACK_MSG_NO_RESPONSE)
                 {
                     // need to send feedback
@@ -115,17 +123,17 @@ void GuiWiFiTask::task()
             sendStatusPacket();
         }
 
-        usleep(1000000); // Sleep for 1000ms to reduce CPU usage
+        usleep(50000); // Sleep for 50ms to reduce CPU usage
     }
 }
 
-int GuiWiFiTask::processPacket(const GuiPacket_t &packet)
+int8_t GuiWiFiTask::processPacket(const GuiPacket_t &packet)
 {
     // Note: TIME_SYNC_REQ, SW_VERSION_REQ and MOTOR_STATE_REQ does not required ACK_STD upon request
-    int ret = STD_ACK_MSG_NOT_RECOGNIZED;
+    int8_t ret = STD_ACK_MSG_NOT_RECOGNIZED;
 
     // Process the packet based on its ID and payload
-    switch (packet.packetId)
+    switch (packet.header.packetId)
     {
     case packet_id_select_mission:
         // Process VU command packet
@@ -140,6 +148,9 @@ int GuiWiFiTask::processPacket(const GuiPacket_t &packet)
         break;
     case packet_id_select_mode:
         std::cout << "[GUIWIFI] Processing packet_id_select_mode\n";
+        updateOperationMode(packet.data[0]);
+        // printf("[GUIWIFI] Updated operation mode to %d, %d, %d, %d, %d\n", packet.data[0], packet.data[1], packet.data[2], packet.data[3], packet.data[4]);
+        ret = STD_ACK_MSG_EXECUTED; // acknowledge mode change command
         break;
     case packet_id_channel_selection:
         std::cout << "[GUIWIFI] Processing packet_id_channel_selection\n";
@@ -151,7 +162,7 @@ int GuiWiFiTask::processPacket(const GuiPacket_t &packet)
         std::cout << "[GUIWIFI] Processing packet_id_autotest\n";
         break;
     case packet_id_motor_state:
-        std::cout << "[GUIWIFI] Processing packet_id_motor_state\n";
+        // std::cout << "[GUIWIFI] Processing packet_id_motor_state\n";
         sendMotorPacket();
         ret = STD_ACK_MSG_NO_RESPONSE; // no ACK_STD feedback required
         break;
@@ -180,7 +191,8 @@ int GuiWiFiTask::processPacket(const GuiPacket_t &packet)
         std::cout << "[GUIWIFI] Processing packet_id_cmd_nose\n";
         break;
     case packet_id_gui_keep_alive:
-        std::cout << "[GUIWIFI] Processing packet_id_gui_keep_alive\n";
+        // std::cout << "[GUIWIFI] Processing packet_id_gui_keep_alive\n";
+        ret = STD_ACK_MSG_NO_RESPONSE; // no ACK_STD feedback required
         break;
     case packet_id_shutdown:
         std::cout << "[GUIWIFI] Processing packet_id_shutdown\n";
@@ -202,11 +214,40 @@ int GuiWiFiTask::processPacket(const GuiPacket_t &packet)
         break;
 
     default:
-        std::cout << "[GUIWIFI] Unknown Packet ID: " << static_cast<int>(packet.packetId) << "\n";
-        return -1; // Unknown packet ID
+        std::cout << "[GUIWIFI] Unknown Packet ID: " << static_cast<int>(packet.header.packetId) << "\n";
+        ret = STD_ACK_MSG_NOT_RECOGNIZED; // feedback for unknown packet ID
+        // return -1; // Unknown packet ID
+        break;
     }
 
     return ret; // Success
+}
+
+void GuiWiFiTask::updateOperationMode(uint8_t mode)
+{
+    // This function can be used to send the current operation mode of the vehicle to the host GUI
+    // It can be called whenever there is a change in the operation mode or periodically as needed
+
+    // Example implementation:
+    // Create a packet with the current operation mode and send it to the host
+
+    // uint8_t buffer[128];
+    // GuiPacket_t packet;
+    // packet.packetId = packet_id_operation_mode; // Define this packet ID in GuiWiFiFrames.hpp
+    // packet.timestamp.val = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    // packet.length = sizeof(OperationModes_t);
+    // OperationModes_t currentMode = pSysData->operationMode; // Assuming operationMode is stored in SystemData_t
+    // memcpy(packet.data, &currentMode, sizeof(OperationModes_t));
+
+    // client.send(reinterpret_cast<uint8_t*>(&packet), sizeof(GuiPacket_t));
+
+    auto &db = DataManager::instance();
+    auto cmnd = db.commands.get();
+
+    cmnd.mode = (OperationModes_t)mode;
+    db.commands.set(cmnd);
+
+    printf("[GUIWIFI] changed mode from %d to %d\n", mode, (uint8_t)cmnd.mode);
 }
 
 void GuiWiFiTask::sendMotorPacket()
@@ -303,6 +344,16 @@ void GuiWiFiTask::sendMotorPacket()
 
 void GuiWiFiTask::sendStatusPacket()
 {
+    auto &db = DataManager::instance();
+    auto nav = db.navigation.get();
+    auto att = db.attitude.get();
+    auto sys = db.status.get();
+
+    // printf("[GUIWIFI] status : Lat=%.5f, Lon=%.5f, Depth=%.2f, Heading=%.2f, Pitch=%.2f, Roll=%.2f\n",
+    //    nav.latitude, nav.longitude, nav.depth, att.yaw, att.pitch, att.roll);
+
+    // printf("[GUIWIFI] status mode: %d\n", (uint8_t)sys.mode);
+
     GuiFrameVuStatus_t GuiVuStaus;
     uint16_t dummy16u = 0;
     uint32_t dummy32u = 0;
@@ -311,20 +362,20 @@ void GuiWiFiTask::sendStatusPacket()
 
     memset(&GuiVuStaus, 0, sizeof(GuiFrameVuStatus_t));
 
-    GuiVuStaus.header.startMsg = GUI_START_MSG_VALUE; // '$'
-
+    //-- set header
+    GuiVuStaus.header.startMsg = GUI_START_MSG_VALUE;     // '$'
     GuiVuStaus.header.packetId = packet_id_vu_status_pck; // Example packet ID for
 
     uint64_t dTime = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-
     // std::cout << dTime << std::endl;
     endianConverter((uint8_t *)&dTime, (uint8_t *)&GuiVuStaus.header.timestamp, 8);
 
     dummy16u = sizeof(GuiFrameVuStatus_t) /*sizeof(GUI_MSG_HEADER) - sizeof(GUI_MSG_FOOTER)*/;
     endianConverter((uint8_t *)&dummy16u, (uint8_t *)&GuiVuStaus.header.length, 2);
 
+    //---------------------------------------------------
     GuiVuStaus.MissionOperationId = 0;
-    GuiVuStaus.VuState = 0;
+    GuiVuStaus.VuState = (uint8_t)sys.mode;
 
     GuiVuStaus.VuStatusB0.LB_Comm = 1;
     GuiVuStaus.VuStatusB0.Carris_Comm = 1;
@@ -334,7 +385,7 @@ void GuiWiFiTask::sendStatusPacket()
     GuiVuStaus.NcuStatusB4.ObstacleAvoidStatusCode = 0;
     GuiVuStaus.NcuStatusB5GuidanceStatus.DepthMeasuresComparison = 0;
 
-    if (1 /*GuiVuStaus.VuState == OP_MODE_MANUAL*/)
+    if (GuiVuStaus.VuState == (uint8_t)OperationModes_t::OP_MODE_MANUAL) // Example: set guidance mode code based on current operation mode of the vehicle
     {
         GuiVuStaus.NcuStatusB5GuidanceStatus.GuidanceModeCode = 1;
     }
@@ -380,22 +431,22 @@ void GuiWiFiTask::sendStatusPacket()
     GuiVuStaus.NcuStatusB1ThrusterWarn.Val = 0;
 
     // Update navigation status
-    dummy32 = (int32_t)((pSysData->telemetry.latitude) * 10000000L);
+    dummy32 = (int32_t)((nav.latitude) * 10000000L);
     endianConverter((uint8_t *)&dummy32, (uint8_t *)&GuiVuStaus.Lattitude, 4);
 
-    dummy32 = (int32_t)((pSysData->telemetry.longitude) * 10000000L);
+    dummy32 = (int32_t)((nav.longitude) * 10000000L);
     endianConverter((uint8_t *)&dummy32, (uint8_t *)&GuiVuStaus.Longitude, 4);
 
-    dummy16 = (int16_t)(pSysData->telemetry.speed * 100);
+    dummy16 = (int16_t)(nav.speed * 100);
     endianConverter((uint8_t *)&dummy16, (uint8_t *)&GuiVuStaus.Speed, 2);
 
-    dummy16 = (int16_t)(pSysData->telemetry.velocity_x * 100);
+    dummy16 = (int16_t)(nav.velocityNorth * 100);
     endianConverter((uint8_t *)&dummy16, (uint8_t *)&GuiVuStaus.SpeedBody_X, 2);
 
-    dummy16 = (int16_t)(pSysData->telemetry.velocity_y * 100);
+    dummy16 = (int16_t)(nav.velocityEast * 100);
     endianConverter((uint8_t *)&dummy16, (uint8_t *)&GuiVuStaus.SpeedBody_Y, 2);
 
-    dummy16 = (int16_t)(pSysData->telemetry.velocity_z * 100);
+    dummy16 = (int16_t)(nav.velocityDown * 100);
     endianConverter((uint8_t *)&dummy16, (uint8_t *)&GuiVuStaus.SpeedBody_Z, 2);
 
     // update INS status
@@ -410,16 +461,16 @@ void GuiWiFiTask::sendStatusPacket()
     GuiVuStaus.NcuStatusB67.GyrosOutrange = 0;
     GuiVuStaus.NcuStatusB67.GPS_Validity = 0;
 
-    dummy16 = (int16_t)((pSysData->telemetry.roll * 100U));
+    dummy16 = (int16_t)((att.roll * 100U));
     endianConverter((uint8_t *)&dummy16, (uint8_t *)&GuiVuStaus.RollAngle, 2);
 
-    dummy16 = (int16_t)((pSysData->telemetry.pitch * 100U));
+    dummy16 = (int16_t)((att.pitch * 100U));
     endianConverter((uint8_t *)&dummy16, (uint8_t *)&GuiVuStaus.PitchAngle, 2);
 
-    dummy16 = (uint16_t)((pSysData->telemetry.heading * 100)); // * 10000U
+    dummy16 = (uint16_t)((att.yaw * 100)); // * 10000U
     endianConverter((uint8_t *)&dummy16, (uint8_t *)&GuiVuStaus.YawAngle, 2);
 
-    dummy32 = (int32_t)(pSysData->telemetry.depth * 100);
+    dummy32 = (int32_t)(nav.depth * 100);
     endianConverter((uint8_t *)&dummy32, (uint8_t *)&GuiVuStaus.Depth, 4);
 
     // alitmeter status
@@ -444,13 +495,14 @@ void GuiWiFiTask::sendStatusPacket()
 
     GuiVuStaus.BatteryCharge = pSysData->bms.chargePercent;
 
-    //--------
+    //-- set footer
 
     // calculate checksum for header and payload (excluding start and end bytes)
-    GuiVuStaus.footer.checksum = calculateChecksum((uint8_t *)&GuiVuStaus.header.packetId, sizeof(GuiVuStaus) - sizeof(GUI_MSG_FOOTER));
+    GuiVuStaus.footer.checksum = calculateChecksum((uint8_t *)&GuiVuStaus.header.packetId, sizeof(GuiVuStaus) - 3 /*sizeof(GUI_MSG_FOOTER)*/);
 
     GuiVuStaus.footer.endMsg = GUI_END_MSG_VALUE; // '\n'
 
+    //-- send the status packet to host
     int32_t bytesSent = client.send((uint8_t *)&GuiVuStaus.header.startMsg, sizeof(GuiFrameVuStatus_t));
 
     // endianConverter((uint8_t *)&GuiVuStaus.header.timestamp, (uint8_t *)&dTime, 8);
@@ -524,6 +576,8 @@ void GuiWiFiTask::sendAckPacket(StdAckRetCode_t ackCode)
 {
     GuiFrameAckStandard_t stdAckFrame;
 
+    memset(&stdAckFrame, 0, sizeof(GuiFrameAckStandard_t));
+
     stdAckFrame.header.startMsg = GUI_START_MSG_VALUE; // '$'
 
     stdAckFrame.header.packetId = packet_id_ack_std;
@@ -532,14 +586,18 @@ void GuiWiFiTask::sendAckPacket(StdAckRetCode_t ackCode)
     // std::cout << dTime << std::endl;
     endianConverter((uint8_t *)&dTime, (uint8_t *)&stdAckFrame.header.timestamp, 8);
 
-    stdAckFrame.testResult = ackCode;
+    uint16_t length = sizeof(GuiFrameAckStandard_t) /*sizeof(GUI_MSG_HEADER) - sizeof(GUI_MSG_FOOTER)*/;
+    endianConverter((uint8_t *)&length, (uint8_t *)&stdAckFrame.header.length, 2);
+
+    stdAckFrame.testResult = (int8_t)ackCode;
 
     // calculate checksum for header and payload (excluding start and end bytes)
-    stdAckFrame.footer.checksum = calculateChecksum((uint8_t *)&stdAckFrame.header.packetId, sizeof(stdAckFrame) - sizeof(GUI_MSG_FOOTER));
+    stdAckFrame.footer.checksum = calculateChecksum((uint8_t *)&stdAckFrame.header.packetId, sizeof(GuiFrameAckStandard_t) - sizeof(GUI_MSG_FOOTER));
 
     stdAckFrame.footer.endMsg = GUI_END_MSG_VALUE; // '\n'
 
     int32_t bytesSent = client.send((uint8_t *)&stdAckFrame.header.startMsg, sizeof(GuiFrameAckStandard_t));
-    printf("[GUIWIFI] Sent ACK packet: ID=%02d, Length=%ld, time: %ld, bytesSent: %d\n",
-           stdAckFrame.header.packetId, sizeof(GuiFrameAckStandard_t), dTime, bytesSent);
+
+    printf("[GUIWIFI] Sent ACK: %d, packet: ID=%02d, Length=%ld, time: %ld, bytesSent: %d\n",
+           stdAckFrame.testResult, stdAckFrame.header.packetId, length, dTime, bytesSent);
 }

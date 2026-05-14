@@ -7,7 +7,7 @@
 #include "common/udp/udpSerialize.h"
 
 #include "GuiWiFiFrames.hpp"
-#include "structures.hpp"
+#include "VehicleData.hpp"
 
 class GuiWiFiTask : public ThreadTask
 {
@@ -22,7 +22,8 @@ protected:
     void sendAckPacket(StdAckRetCode_t ackCode);
     void sendMotorPacket();
     void sendStatusPacket();
-    int processPacket(const GuiPacket_t &packet);
+    int8_t processPacket(const GuiPacket_t &packet);
+    void updateOperationMode(uint8_t mode);
 
     void endianConverter(unsigned char *fromPointer, unsigned char *toPointer,
                          int noOfBytes)

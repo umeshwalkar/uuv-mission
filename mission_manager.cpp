@@ -7,7 +7,9 @@
 #include <chrono>
 #include <mosquitto.h>
 #include <json/json.h>
-#include "structures.hpp"
+
+#include "DataManager.hpp"
+#include "VehicleData.hpp"
 
 // #include "common/udp/udpclient.hpp"
 // #include "common/udp/udpserver.hpp"
@@ -353,6 +355,30 @@ int main(int argc, char *argv[])
     systemData.bms.capacityRemain = 100; // in Ah
     systemData.bms.chargePercent = 90;
 
+    //------------------------------------------------------
+    auto &db = DataManager::instance();
+
+    NavigationData nav;
+    nav.latitude = 13.70;
+    nav.longitude = 84.35;
+    nav.depth = 10.5;
+    db.navigation.set(nav, 0.0001);
+
+    //===
+    AttitudeData att;
+
+    att.roll = 10.0;
+    att.pitch = 11.0;
+    att.yaw = 12.0;
+
+    att.rollRate = 1.0;
+    att.pitchRate = 2.0;
+    att.yawRate = 3.0;
+
+    db.attitude.set(att, 0.01);
+
+    //------------------------------------------------------
+
     // intitialize and start GUI WiFi Task
     GuiWiFiTask guiwifi(&config, &systemData);
     guiwifi.start();
@@ -366,6 +392,13 @@ int main(int argc, char *argv[])
         if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_control_time).count() >= 50)
         {
         }
+
+        //===
+        auto cmnd = db.commands.get();
+
+        auto stat = db.status.get();
+        stat.mode = cmnd.mode;
+        db.status.set(stat, 0);
 
         // // Receive data from host on server port
         // numberBytesReceived = UdpServer_recv(&udpServer, buffer, (uint16_t)MAX_MESSAGE_DIMENSION);

@@ -88,20 +88,11 @@ typedef enum
 
 #pragma pack(push, 1)
 
-typedef union __attribute__((packed))
+typedef struct __attribute__((packed))
 {
 	unsigned long long int val;
 	unsigned char bytes[8];
 } GuiTime_t;
-
-/* packet without header and footer */
-typedef struct __attribute__((packed))
-{
-	unsigned char packetId;
-	GuiTime_t timestamp;
-	unsigned int length; // data length
-	unsigned char data[128];
-} GuiPacket_t;
 
 typedef struct
 	__attribute__((packed))
@@ -118,6 +109,18 @@ typedef struct
 	uint8_t checksum;
 	uint8_t endMsg;
 } GUI_MSG_FOOTER;
+
+/* packet without header and footer */
+typedef union __attribute__((packed))
+{
+	unsigned char msg[142];
+	struct __attribute__((packed))
+	{
+		GUI_MSG_HEADER header;
+		unsigned char data[128];
+		GUI_MSG_FOOTER footer;
+	};
+} GuiPacket_t;
 
 typedef struct
 	__attribute__((packed))
@@ -379,6 +382,7 @@ typedef struct
 typedef struct
 	__attribute__((packed))
 {
+	GUI_MSG_HEADER header;
 	uint8_t VuSwVersionLSB;
 	uint8_t VuSwVersionMSB;
 	uint8_t LbSwVersionLSB;
@@ -387,6 +391,7 @@ typedef struct
 	uint8_t NcuSwVersionMSB;
 	uint8_t CarrisSwVersionLSB;
 	uint8_t CarrisSwVersionMSB;
+	GUI_MSG_FOOTER footer;
 } GuiFrameAckVersion_t;
 
 typedef union
@@ -419,7 +424,7 @@ typedef struct
 	__attribute__((packed))
 {
 	GUI_MSG_HEADER header;
-	StdAckRetCode_t testResult; 
+	int8_t testResult;
 	GUI_MSG_FOOTER footer;
 } GuiFrameAckStandard_t;
 
