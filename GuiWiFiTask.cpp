@@ -191,7 +191,56 @@ int8_t GuiWiFiTask::processPacket(const GuiPacket_t &packet)
         }
         break;
     case packet_id_abort_mission:
-        std::cout << "[GUIWIFI] Processing packet_id_abort_mission\n";
+        // Process Mission abort packet
+        {
+            std::cout << "[GUIWIFI] Processing packet_id_abort_mission\n";
+            auto &db = DataManager::instance();
+            auto sys = db.status.get();
+            if (sys.mode == OperationMode::OP_MODE_AUTONOMOUS)
+            {
+                if (sys.armed == true)
+                {
+                    auto cmnd = db.commands.get();
+
+                    sys.armed = false;                // disarm
+                    sys.currentMisnLegPerforming = 0; // reset the counter
+                    switch (packet.data[0])
+                    {
+                    case 0:
+                        printf("[GUIWIFI] Abort and do Hovering\n");
+                        // ToDo: prepare to perform hovering
+                        // currently put in standby
+                        cmnd.mode = OperationMode::OP_MODE_STANDBY;
+                        break;
+                    case 1:
+                        printf("[GUIWIFI] Abort and do Surfacing\n");
+                        // ToDo: prepare to perform surfacing
+                        // currently put in standby
+                        cmnd.mode = OperationMode::OP_MODE_STANDBY;
+                        break;
+                    case 2:
+                        printf("[GUIWIFI] Abort and do Emergency Surfacing\n");
+                        // ToDo: prepare to perform emergency surfacing
+                        // currently put in standby
+                        cmnd.mode = OperationMode::OP_MODE_STANDBY;
+                        break;
+                    default:
+                        printf("[GUIWIFI] Abort and goto standby\n");
+                        // put in standby
+                        cmnd.mode = OperationMode::OP_MODE_STANDBY;
+                        break;
+                    }
+
+                    db.commands.set(cmnd);
+                    db.status.set(sys);
+                    ret = STD_ACK_MSG_EXECUTED;
+                    break;
+                }
+            }
+            // not in auto mode or mission file is not validated
+            std::cout << "[GUIWIFI] not in Autonmous mission run mode\n";
+            ret = STD_ACK_MSG_REFUSED;
+        }
         break;
     case packet_id_select_mode:
         std::cout << "[GUIWIFI] Processing packet_id_select_mode\n";
