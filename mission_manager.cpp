@@ -571,8 +571,19 @@ int main(int argc, char *argv[])
                 if (/*nav.distanceToTarget <= misn.misnRadius[sys.currentMisnLegPerforming]*/
                     nav.target_acheived == true)
                 {
+                    nav.target_acheived = false;
+                    db.navigation.set(nav, 0.01);
+                    
                     // consider reached to destination waypoint
+                    printf("[Main] waypoint #%d reached in %ld seconds\n", sys.currentMisnLegPerforming,
+                        (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()) - sys.legStartTimeInSec);
+
                     sys.currentMisnLegPerforming++; // advance to next waypoint
+                    sys.legStartTimeInSec = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
+                    db.status.set(sys, 0); // save the state
+                    printf("[MAIN] advancing to next waypoint\n");
+
                     if (sys.currentMisnLegPerforming >= sys.totalMisnlegs)
                     {
                         // mission finished. go to standby or stay there only
@@ -588,11 +599,13 @@ int main(int argc, char *argv[])
                 cmnd.targetDepth = misn.misnDepthAltitude[sys.currentMisnLegPerforming];
                 cmnd.targetSpeed = (float)misn.misnSpeed[sys.currentMisnLegPerforming];
                 cmnd.targetRadius = (float)misn.misnRadius[sys.currentMisnLegPerforming];
-                db.commands.set(cmnd, 0);
+                
+                db.commands.set(cmnd, 0); 
             }
             // sys.mode = cmnd.mode;
             // db.status.set(sys, 0);
 
+            // ToDo: send only when parameters are changed
             publish_mission_data();
             last_status_time = now;
         }
@@ -605,6 +618,6 @@ int main(int argc, char *argv[])
         //     // Process the received data as needed
         // }
 
-        usleep(1000000); // Sleep for 1000ms to reduce CPU usage
+        usleep(1100000); // Sleep for 1000ms to reduce CPU usage
     }
 }
