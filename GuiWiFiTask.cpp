@@ -586,7 +586,14 @@ void GuiWiFiTask::sendStatusPacket()
     endianConverter((uint8_t *)&dummy16u, (uint8_t *)&GuiVuStaus.header.length, 2);
 
     //---------------------------------------------------
-    GuiVuStaus.MissionOperationId = 0;
+    if (sys.armed == true)
+    {
+        GuiVuStaus.MissionOperationId = (sys.currentMisnLegPerforming + 1);
+    }
+    else 
+    {
+        GuiVuStaus.MissionOperationId = 0;
+    }
     GuiVuStaus.VuState = (uint8_t)sys.mode;
 
     GuiVuStaus.VuStatusB0.LB_Comm = 1;
