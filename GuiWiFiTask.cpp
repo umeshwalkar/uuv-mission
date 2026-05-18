@@ -179,6 +179,7 @@ int8_t GuiWiFiTask::processPacket(const GuiPacket_t &packet)
                 {
                     ret = STD_ACK_MSG_EXECUTED;
                     sys.armed = true;
+                    sys.legStartTimeInSec = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                     db.status.set(sys);
                     std::cout << "[GUIWIFI] Autonmous mission shall start\n";
                     break;

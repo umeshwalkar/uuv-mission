@@ -181,7 +181,7 @@ struct NavigationData
     float velocityEast = 0;
     float velocityDown = 0;
     bool target_acheived = false;
-    
+
     bool operator!=(
         const NavigationData &other) const
     {
@@ -195,7 +195,8 @@ struct NavigationData
                (fabs(velocityNorth - other.velocityNorth) > THRESH) ||
                (fabs(velocityEast - other.velocityEast) > THRESH) ||
                (fabs(velocityDown - other.velocityDown) > THRESH) ||
-               (distanceToTarget != other.distanceToTarget);
+               (distanceToTarget != other.distanceToTarget) ||
+               (target_acheived != other.target_acheived);
     }
 };
 
@@ -346,6 +347,7 @@ struct SystemStatus
 
     uint8_t currentMisnLegPerforming = 0;
     uint8_t totalMisnlegs = 0;
+    uint64_t legStartTimeInSec; // holds the timestamp when leg start
 
     // ToDo: Add comparison operator if needed for command data change detection
     //  COMPARISON OPERATOR
@@ -384,7 +386,7 @@ struct CommandData
     float targetDepth = 0;
     float targetSpeed = 0;
     float targetRadius = 0; // for waypoint navigation, radius to consider waypoint reached
-    
+
     // ToDo: Add more command fields as needed for different mission types and modes
 
     // ToDo: Add comparison operator if needed for command data change detection
