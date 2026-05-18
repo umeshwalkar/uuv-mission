@@ -368,12 +368,13 @@ int8_t GuiWiFiTask::validateMissionFile(uint8_t missionType, uint8_t filenameLen
                 misn.misnlatitude[i] = ((double)gotoWp->latitude / 10000000);
                 misn.misnLongitude[i] = ((double)gotoWp->longitude / 10000000);
                 misn.misnDepthAltitude[i] = ((float)gotoWp->depthAltitude / 100);
-                if(misn.misnDepthAltitude[i] < 0.0)
+                if (misn.misnDepthAltitude[i] < 0.0)
                 {
                     misn.misnDepthAltitude[i] *= -1.0; // consider positive value only for now.
                 }
                 misn.misnSpeed[i] = ((float)gotoWp->speed / 100);
                 misn.misnRadius[i] = gotoWp->bubbleSize;
+                i++;
             }
         }
     }
@@ -381,6 +382,13 @@ int8_t GuiWiFiTask::validateMissionFile(uint8_t missionType, uint8_t filenameLen
     // sys.totalMisnlegs = i;
     db.status.set(sys, 0);
     db.autoMissionData.set(misn, 0);
+
+    // print mission data for debugging
+    for (i = 0; i < sys.totalMisnlegs; i++)
+    {
+        printf("[GUIWIFI] lat: %.6f, lon:%.6f, Depth: %.1f, Speed: %.1f, Radius: %d\n",
+               misn.misnlatitude[i], misn.misnLongitude[i], misn.misnDepthAltitude[i], misn.misnSpeed[i], misn.misnRadius[i]);
+    }
 
     return (STD_ACK_MSG_EXECUTED);
 }
