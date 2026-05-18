@@ -424,7 +424,7 @@ typedef struct
 	__attribute__((packed))
 {
 	GUI_MSG_HEADER header;
-	int8_t testResult;
+	int8_t feedback;
 	GUI_MSG_FOOTER footer;
 } GuiFrameAckStandard_t;
 

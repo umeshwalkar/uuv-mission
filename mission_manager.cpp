@@ -38,6 +38,7 @@ const char *IMU_HNAV_TOPIC = "uuv/sensors/imu/hnav";
 const char *MISSION_TOPIC = "uuv/mission";
 const char *NAV_CONTROL_TOPIC = "uuv/navigation/control";
 const char *NAV_STATUS_TOPIC = "uuv/navigation/status";
+const char *BMS_STATUS_TOPIC = "uuv/sensors/bms";
 
 // Global state
 volatile sig_atomic_t running = 1;
@@ -46,7 +47,7 @@ int mqtt_connected = 0;
 // ModeManager* mode_manager = NULL;
 // UdpServerStruct udpServer;
 // UdpClientStruct udpClient;
-SystemData_t systemData; // this will hold the latest telemetry and status data for use in the GUI and other tasks
+// SystemData_t systemData; // this will hold the latest telemetry and status data for use in the GUI and other tasks
 
 // Counters
 int nav_control_count = 0;
@@ -80,13 +81,15 @@ void mqtt_on_connect(struct mosquitto *mosq, void *userdata, int result)
         // Subscribe to topics
 
         mosquitto_subscribe(mosq, NULL, NAV_CONTROL_TOPIC, 1);
-        // mosquitto_subscribe(mosq, NULL, NAV_STATUS_TOPIC, 1);
+        mosquitto_subscribe(mosq, NULL, NAV_STATUS_TOPIC, 1);
         mosquitto_subscribe(mosq, NULL, IMU_HNAV_TOPIC, 1);
+        mosquitto_subscribe(mosq, NULL, BMS_STATUS_TOPIC, 1);
 
         printf("[MQTT] Subscribed to topics:\n");
         printf("  - %s\n", NAV_CONTROL_TOPIC);
-        // printf("  - %s\n", NAV_STATUS_TOPIC);
+        printf("  - %s\n", NAV_STATUS_TOPIC);
         printf("  - %s\n", IMU_HNAV_TOPIC);
+        printf("  - %s\n", BMS_STATUS_TOPIC);
     }
     else
     {
@@ -131,66 +134,163 @@ void mqtt_on_message(struct mosquitto *mosq, void *userdata,
     // Handle IMU data (HNAV)
     if (strcmp(msg->topic, NAV_CONTROL_TOPIC) == 0)
     {
-        nav_control_count++;
-        NavControlData nav = {0};
+        // use this data only when vehicle not in MANUAL mode
 
-        // mode_manager->update_navigation_state(root);
+        auto &db = DataManager::instance();
+        // auto nav = db.navigation.get();
+        // auto thr = db.thrusters.get();
+        auto sys = db.status.get();
 
-        // Parse autonomous parameters
-        if (root.isMember("thrust"))
-            nav.thruster.thrust = root["thrust"].asInt();
-        if (root.isMember("thruster_rpm"))
-            nav.thruster.rpm = root["thruster_rpm"].asInt();
-
-        if (root.isMember("bottom_rudder"))
-            nav.bottomRudder.angleCommanded = root["bottom_rudder"].asDouble();
-        if (root.isMember("top_rudder"))
-            nav.topRudder.angleCommanded = root["top_rudder"].asDouble();
-        if (root.isMember("starboard_rudder"))
-            nav.starboard.angleCommanded = root["starboard_rudder"].asDouble();
-        if (root.isMember("port_rudder"))
-            nav.port.angleCommanded = root["port_rudder"].asDouble();
-
-        if (nav_control_count % 1 == 0)
+        if (sys.mode != OperationMode::OP_MODE_MANUAL)
         {
-            // const auto& nav = mode_manager->get_navigation_state();
-            printf("[MisManager] NAV Update #%d: Thrust=%d %%, Top=%.1f, Bottom=%.1f, port=%.1f, starboard=%.1f\n",
-                   nav_control_count, nav.thruster.thrust, nav.topRudder.angleCommanded, nav.bottomRudder.angleCommanded, nav.port.angleCommanded, nav.starboard.angleCommanded);
+            auto cmnd = db.commands.get();
+
+            nav_control_count++;
+
+            // mode_manager->update_navigation_state(root);
+
+            // Parse autonomous parameters
+            if (root.isMember("thrust"))
+                cmnd.commandedThrust[THRUSTERS::SURGE_1] = root["thrust"].asInt();
+            // if (root.isMember("thruster_rpm"))
+            //     thr.rpm[THRUSTERS::SURGE_1] = root["thruster_rpm"].asInt();
+
+            if (root.isMember("bottom_rudder"))
+                cmnd.commandedFinAngle[FINS::BOTTOM] = root["bottom_rudder"].asDouble();
+            if (root.isMember("top_rudder"))
+                cmnd.commandedFinAngle[FINS::TOP] = root["top_rudder"].asDouble();
+            if (root.isMember("starboard_rudder"))
+                cmnd.commandedFinAngle[FINS::RIGHT] = root["starboard_rudder"].asDouble();
+            if (root.isMember("port_rudder"))
+                cmnd.commandedFinAngle[FINS::LEFT] = root["port_rudder"].asDouble();
+
+            // commit to data dictionary
+            db.commands.set(cmnd);
+
+            if (nav_control_count % 300 == 0)
+            {
+                // const auto& nav = mode_manager->get_navigation_state();
+                printf("[MisManager] NAV Update #%d: Thrust=%d %%, Top=%.1f, Bottom=%.1f, port=%.1f, starboard=%.1f\n",
+                       nav_control_count, cmnd.commandedThrust[THRUSTERS::SURGE_1],
+                       cmnd.commandedFinAngle[FINS::TOP], cmnd.commandedFinAngle[FINS::BOTTOM],
+                       cmnd.commandedFinAngle[FINS::LEFT], cmnd.commandedFinAngle[FINS::RIGHT]);
+            }
         }
     }
 
     // Handle IMU data (HNAV)
     else if (strcmp(msg->topic, IMU_HNAV_TOPIC) == 0)
     {
+        auto &db = DataManager::instance();
+        auto nav = db.navigation.get();
+        auto att = db.attitude.get();
+
         imu_count++;
 
-        TelemetryData Telemetry;
+        // TelemetryData Telemetry;
 
         if (root.isMember("latitude"))
-            Telemetry.latitude = root["latitude"].asDouble();
+            nav.latitude = root["latitude"].asDouble();
         if (root.isMember("longitude"))
-            Telemetry.longitude = root["longitude"].asDouble();
+            nav.longitude = root["longitude"].asDouble();
         if (root.isMember("depth"))
-            Telemetry.depth = root["depth"].asDouble();
-        if (root.isMember("heading"))
-            Telemetry.heading = root["heading"].asDouble();
-        if (root.isMember("pitch"))
-            Telemetry.pitch = root["pitch"].asDouble();
-        if (root.isMember("roll"))
-            Telemetry.roll = root["roll"].asDouble();
-        if (root.isMember("speed"))
-            Telemetry.speed = root["speed"].asDouble();
-        if (root.isMember("velocity_x"))
-            Telemetry.velocity_x = root["velocity_x"].asDouble();
-        if (root.isMember("velocity_y"))
-            Telemetry.velocity_y = root["velocity_y"].asDouble();
-        if (root.isMember("velocity_z"))
-            Telemetry.velocity_z = root["velocity_z"].asDouble();
+            nav.depth = root["depth"].asDouble();
 
-        if (imu_count % 30 == 0)
+        if (root.isMember("speed"))
+            nav.speed = root["speed"].asDouble();
+        if (root.isMember("velocity_x"))
+            nav.velocityNorth = root["velocity_x"].asDouble();
+        if (root.isMember("velocity_y"))
+            nav.velocityEast = root["velocity_y"].asDouble();
+        if (root.isMember("velocity_z"))
+            nav.velocityDown = root["velocity_z"].asDouble();
+
+        if (root.isMember("heading"))
+            att.yaw = root["heading"].asDouble();
+        if (root.isMember("pitch"))
+            att.pitch = root["pitch"].asDouble();
+        if (root.isMember("roll"))
+            att.roll = root["roll"].asDouble();
+
+        db.attitude.set(att);
+        db.navigation.set(nav);
+
+        if (imu_count % 300 == 0)
         {
             printf("[MisManager] IMU Update #%d: Lat=%.6f, Lon=%.6f, Depth=%.2f, Heading=%.1f\n",
-                   imu_count, Telemetry.latitude, Telemetry.longitude, Telemetry.depth, Telemetry.heading);
+                   imu_count, nav.latitude, nav.longitude, nav.depth, att.yaw);
+        }
+    }
+
+    // handles navigation manager status packet
+    else if (strcmp(msg->topic, NAV_STATUS_TOPIC) == 0)
+    {
+        // handles navogation manager status message
+        auto &db = DataManager::instance();
+        auto nav = db.navigation.get();
+        auto sys = db.status.get();
+
+        auto navUpdate = false;
+        // auto sysUpdate = false;
+
+        // navigation
+        if (root.isMember("mission_command"))
+        {
+            Json::Value &mission_cmd = root["mission_command"];
+            if (mission_cmd.isMember("distance_target"))
+            {
+                nav.distanceToTarget = mission_cmd["distance_target"].asUInt();
+                navUpdate = true;
+                // db.navigation.set(nav);
+            }
+            if (mission_cmd.isMember("target_acheived"))
+            {
+                nav.target_acheived = mission_cmd["target_acheived"].asBool();
+                navUpdate = true;
+                // db.navigation.set(nav);
+            }
+        }
+
+        // use this method when more than one parameters to be read
+        if (navUpdate == true)
+        {
+            db.navigation.set(nav);
+        }
+
+        // status
+        if (root.isMember("mode"))
+        {
+            sys.mode = db.string_to_mode(root["mode"].asString());
+            db.status.set(sys);
+            // sysUpdate = true;
+        }
+
+        // use this method when more than one parameters to be read
+        // if (sysUpdate == true)
+        // {
+        //     db.status.set(sys);
+        // }
+    }
+    else if (strcmp(msg->topic, BMS_STATUS_TOPIC) == 0)
+    {
+        // handles navogation manager status message
+        auto &db = DataManager::instance();
+        auto bms = db.bms.get();
+        // auto bmsUpdate = false;
+
+        if (root.isMember("voltage"))
+            bms.voltage = root["voltage"].asUInt();
+        if (root.isMember("current"))
+            bms.current = root["current"].asUInt();
+        if (root.isMember("remainCapacity"))
+            bms.capacityRemain = root["remainCapacity"].asUInt();
+        if (root.isMember("soc"))
+            bms.chargePercent = root["soc"].asUInt();
+
+        // commit to data dictionary
+        // if (bmsUpdate == true)
+        {
+            db.bms.set(bms, 0.01);
         }
     }
 }
@@ -221,6 +321,68 @@ int mqtt_connect_retry(int max_retries = 10)
     }
 
     return -1;
+}
+
+/**
+ * Publish mission data
+ */
+void publish_mission_data()
+{
+    Json::Value root;
+    auto &db = DataManager::instance();
+    auto cmnd = db.commands.get();
+
+    // auto stat = db.status.get();
+
+    root["mode"] = db.mode_to_string(cmnd.mode);
+
+    root["timestamp"] = (Json::UInt64)std::chrono::system_clock::now().time_since_epoch().count();
+
+    if (cmnd.mode == OperationMode::OP_MODE_AUTONOMOUS)
+    {
+        // autonomous
+        root["target_latitude"] = SIX_DECIMAL_SCALE(cmnd.targetLatitude);
+        root["target_longitude"] = SIX_DECIMAL_SCALE(cmnd.targetLongitude);
+        root["target_radius"] = cmnd.targetRadius;
+        root["target_depth"] = TWO_DECIMAL_SCALE(cmnd.targetDepth);
+        root["target_speed"] = TWO_DECIMAL_SCALE(cmnd.targetSpeed);
+    }
+    else if (cmnd.mode == OperationMode::OP_MODE_SEMI_AUTONOMOUS)
+    {
+        // semi-autonomus
+        root["target_heading_semi"] = TWO_DECIMAL_SCALE(cmnd.commandedHeading_semi);
+        root["target_depth_semi"] = TWO_DECIMAL_SCALE(cmnd.commandedDepth_semi);
+        root["target_speed_semi"] = TWO_DECIMAL_SCALE(cmnd.commandedSpeed_semi);
+        root["target_duration_semi"] = cmnd.commandedDuration_semi;
+    }
+    else if (cmnd.mode == OperationMode::OP_MODE_MANUAL)
+    {
+        // manual
+        root["fin_percent"] = TWO_DECIMAL_SCALE(cmnd.commandedFinAngle[FINS::LEFT]);
+        root["rudder_percent"] = TWO_DECIMAL_SCALE(cmnd.commandedFinAngle[FINS::TOP]);
+        root["thruster_percent"] = cmnd.commandedThrust[THRUSTERS::SURGE_1];
+    }
+    else // standby
+    {
+        // home location
+        root["home_latitude"] = cmnd.homeLatitude;
+        root["home_longitude"] = cmnd.homeLongitude;
+    }
+
+    Json::StreamWriterBuilder writer;
+    std::string payload = Json::writeString(writer, root);
+
+    int ret = mosquitto_publish(mqtt_client, NULL, MISSION_TOPIC,
+                                payload.length(), payload.c_str(), 1, false);
+
+    if (ret == MOSQ_ERR_SUCCESS)
+    {
+        // control_count++;
+    }
+    else
+    {
+        printf("[MQTT] Publish failed: %s\n", mosquitto_strerror(ret));
+    }
 }
 
 /**
@@ -295,7 +457,7 @@ int main(int argc, char *argv[])
     printf("[Main] Application started. Press Ctrl+C to exit.\n\n");
 
     // Main control loop
-    std::chrono::steady_clock::time_point last_control_time = std::chrono::steady_clock::now();
+    // std::chrono::steady_clock::time_point last_control_time = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point last_status_time = std::chrono::steady_clock::now();
     // int32_t numberBytesReceived;
     // unsigned char buffer[MAX_MESSAGE_DIMENSION] = {0};
@@ -304,6 +466,7 @@ int main(int argc, char *argv[])
     config.guiWiFiTxPort = UDP_GCS_TX_PORT;
     config.guiWiFiRxPort = UDP_GCS_RX_PORT;
 
+#if 0
     // dummy variables for testing
     systemData.telemetry.latitude = 37.7749;
     systemData.telemetry.longitude = -122.4194;
@@ -376,11 +539,11 @@ int main(int argc, char *argv[])
     att.yawRate = 3.0;
 
     db.attitude.set(att, 0.01);
-
+#endif
     //------------------------------------------------------
 
     // intitialize and start GUI WiFi Task
-    GuiWiFiTask guiwifi(&config, &systemData);
+    GuiWiFiTask guiwifi(&config /*, &systemData*/);
     guiwifi.start();
 
     while (running)
@@ -389,16 +552,50 @@ int main(int argc, char *argv[])
         auto elapsed_status = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_status_time);
 
         // Control loop at 20 Hz
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_control_time).count() >= 50)
+        // if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_control_time).count() >= 1000)
+        if (elapsed_status.count() >= 1000)
         {
+            //===
+            auto &db = DataManager::instance();
+            auto cmnd = db.commands.get();
+            auto sys = db.status.get();
+            auto nav = db.navigation.get();
+
+            if ((sys.mode == OperationMode::OP_MODE_AUTONOMOUS) &&
+                (sys.armed == true) && (sys.totalMisnlegs > 0))
+            {
+                // autnomous mission to be started
+                auto misn = db.autoMissionData.get();
+                auto nav = db.navigation.get();
+
+                if (/*nav.distanceToTarget <= misn.misnRadius[sys.currentMisnLegPerforming]*/
+                    nav.target_acheived == true)
+                {
+                    // consider reached to destination waypoint
+                    sys.currentMisnLegPerforming++; // advance to next waypoint
+                    if (sys.currentMisnLegPerforming >= sys.totalMisnlegs)
+                    {
+                        // mission finished. go to standby or stay there only
+                        // std::cout  << "[MAIN] Mission Completed: " << static_cast<int>(sys.currentMisnLegPerforming) << "\n";
+                        printf("[MAIN] Mission completed, going standby\n");
+
+                        // sys.currentMisnLegPerforming--; // stay at last waypoint
+                        cmnd.mode = OperationMode::OP_MODE_STANDBY;
+                    }
+                }
+                cmnd.targetLatitude = misn.misnlatitude[sys.currentMisnLegPerforming];
+                cmnd.targetLongitude = misn.misnLongitude[sys.currentMisnLegPerforming];
+                cmnd.targetDepth = misn.misnDepthAltitude[sys.currentMisnLegPerforming];
+                cmnd.targetSpeed = (float)misn.misnSpeed[sys.currentMisnLegPerforming];
+                cmnd.targetRadius = (float)misn.misnRadius[sys.currentMisnLegPerforming];
+                db.commands.set(cmnd, 0);
+            }
+            // sys.mode = cmnd.mode;
+            // db.status.set(sys, 0);
+
+            publish_mission_data();
+            last_status_time = now;
         }
-
-        //===
-        auto cmnd = db.commands.get();
-
-        auto stat = db.status.get();
-        stat.mode = cmnd.mode;
-        db.status.set(stat, 0);
 
         // // Receive data from host on server port
         // numberBytesReceived = UdpServer_recv(&udpServer, buffer, (uint16_t)MAX_MESSAGE_DIMENSION);
@@ -408,6 +605,6 @@ int main(int argc, char *argv[])
         //     // Process the received data as needed
         // }
 
-        usleep(10000); // Sleep for 10ms to reduce CPU usage
+        usleep(1000000); // Sleep for 1000ms to reduce CPU usage
     }
 }
